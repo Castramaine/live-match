@@ -1,0 +1,12 @@
+{
+  "name": "live-match",
+  "version": "1.0.0",
+  "description": "Live football standings demo with a local proxy for Football-Data.org",
+  "main": "server.js",
+  "scripts": {
+    "start": "node server.js"
+  },
+  "dependencies": {
+    "express": "^4.19.2"
+  }
+}

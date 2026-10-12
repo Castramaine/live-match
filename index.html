@@ -15,7 +15,7 @@
   <div class="max-w-6xl mx-auto p-6">
     <header class="mb-6">
       <h1 class="text-2xl md:text-3xl font-bold">Live Football Leagues</h1>
-      <p class="text-sm text-slate-600 mt-1">Top European leagues with live standings. Use the serverless proxy for production to keep keys secure.</p>
+      <p class="text-sm text-slate-600 mt-1">Top European leagues with live standings. A direct browser request to Football-Data.org will fail due to CORS/auth restrictions, so deploy or run a local proxy.</p>
     </header>
 
     <section class="bg-white p-4 rounded-lg shadow-sm mb-6 grid gap-4 md:grid-cols-3">
@@ -25,7 +25,7 @@
           <input id="apiKeyInput" type="password" placeholder="Optional: save for local testing" class="flex-1 px-3 py-2 border rounded-md bg-slate-50 focus:outline-none focus:ring-2 focus:ring-sky-400" />
           <button id="saveKeyBtn" class="px-3 py-2 bg-sky-600 text-white rounded-md hover:bg-sky-700">Save</button>
         </div>
-        <p id="apiKeyHint" class="text-xs text-slate-500">Best practice: use FOOTBALL_DATA_KEY in your serverless function and deploy it. Local key is only for quick demos.</p>
+        <p id="apiKeyHint" class="text-xs text-slate-500">Best practice: use a server-side proxy such as Vercel/Netlify or the included local Node proxy, and keep the key in FOOTBALL_DATA_KEY.</p>
       </div>
 
       <div class="space-y-2">
@@ -100,7 +100,7 @@
     </main>
 
     <footer class="mt-8 text-xs text-slate-500">
-      <p>Note: This app uses <a href="https://www.football-data.org/" target="_blank" rel="noreferrer" class="text-sky-600 underline">Football-Data.org</a>. Deploy the serverless proxy and set FOOTBALL_DATA_KEY to keep the API key secret.</p>
+      <p>Note: This app uses <a href="https://www.football-data.org/" target="_blank" rel="noreferrer" class="text-sky-600 underline">Football-Data.org</a>. For browser-only testing, a local proxy must be running.</p>
     </footer>
   </div>
 
@@ -148,7 +148,7 @@
       if (proxyResult) return proxyResult;
 
       if (!API_KEY) {
-        console.warn('No proxy available and no local API key set.');
+        console.warn('No proxy and no local API key. Browser-only testing will fail with Football-Data.org due to CORS/auth restrictions.');
         return null;
       }
 
@@ -386,7 +386,7 @@
       setStatus('Loading standings...');
       const table = await fetchLeagueStandings(league);
       if (!table) {
-        setStatus('Failed to fetch standings. Ensure the proxy is deployed and FOOTBALL_DATA_KEY is set, or save a local key for testing.', true);
+        setStatus('This app needs a live proxy. Run the local Node proxy or deploy to Vercel/Netlify with FOOTBALL_DATA_KEY configured. Browser-only calls to Football-Data.org will fail due to CORS/auth restrictions.', true);
         return;
       }
       renderStandingsTable(table);
@@ -415,8 +415,8 @@
 
     (function init() {
       initFromStorage();
-      if (API_KEY) setStatus('Local API key loaded. For production, deploy a serverless function and set FOOTBALL_DATA_KEY.');
-      else setStatus('No local API key. Deploy the serverless function and set FOOTBALL_DATA_KEY for production.');
+      if (API_KEY) setStatus('Local API key loaded. A browser-only direct request may still be blocked by CORS; use the proxy for consistent results.');
+      else setStatus('No local API key. Start the local proxy or deploy to Vercel/Netlify with FOOTBALL_DATA_KEY.');
       loadStandings();
       configureAutoRefresh();
       window.__app = { loadStandings, fetchLeagueStandings, compareTeams };
