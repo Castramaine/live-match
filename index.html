@@ -1,0 +1,426 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8" />
+  <meta name="viewport" content="width=device-width,initial-scale=1" />
+  <title>Live Football Leagues — Standings & Compare</title>
+  <meta name="description" content="Live standings for top European leagues using Football-Data.org API. Compare teams, auto-refresh, and store your API key locally." />
+  <script src="https://cdn.tailwindcss.com"></script>
+  <style>
+    .team-name { max-width: 220px; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+    .crest { width: 28px; height: 28px; object-fit: contain; }
+  </style>
+</head>
+<body class="bg-slate-50 text-slate-800 antialiased">
+  <div class="max-w-6xl mx-auto p-6">
+    <header class="mb-6">
+      <h1 class="text-2xl md:text-3xl font-bold">Live Football Leagues</h1>
+      <p class="text-sm text-slate-600 mt-1">Top European leagues with live standings. Use the serverless proxy for production to keep keys secure.</p>
+    </header>
+
+    <section class="bg-white p-4 rounded-lg shadow-sm mb-6 grid gap-4 md:grid-cols-3">
+      <div class="space-y-2">
+        <label class="text-sm font-medium">Football-Data.org API Key</label>
+        <div class="flex gap-2">
+          <input id="apiKeyInput" type="password" placeholder="Optional: save for local testing" class="flex-1 px-3 py-2 border rounded-md bg-slate-50 focus:outline-none focus:ring-2 focus:ring-sky-400" />
+          <button id="saveKeyBtn" class="px-3 py-2 bg-sky-600 text-white rounded-md hover:bg-sky-700">Save</button>
+        </div>
+        <p id="apiKeyHint" class="text-xs text-slate-500">Best practice: use FOOTBALL_DATA_KEY in your serverless function and deploy it. Local key is only for quick demos.</p>
+      </div>
+
+      <div class="space-y-2">
+        <label class="text-sm font-medium">League</label>
+        <select id="leagueSelect" class="w-full px-3 py-2 border rounded-md bg-white">
+          <option value="PL">Premier League (PL)</option>
+          <option value="FL1">Ligue 1 (FL1)</option>
+          <option value="PD">La Liga (PD)</option>
+          <option value="SA">Serie A (SA)</option>
+          <option value="BL1">Bundesliga (BL1)</option>
+        </select>
+        <div class="flex items-center gap-2 text-sm text-slate-600">
+          <button id="refreshBtn" class="px-3 py-1 bg-emerald-600 text-white rounded-md hover:bg-emerald-700">Refresh</button>
+          <label class="flex items-center gap-2">
+            <input id="autoToggle" type="checkbox" class="h-4 w-4" /> Auto-refresh
+          </label>
+          <label class="flex items-center gap-2">
+            Interval:
+            <select id="intervalSelect" class="ml-1 px-2 py-1 border rounded-md text-sm">
+              <option value="30">30s</option>
+              <option value="60" selected>60s</option>
+              <option value="120">120s</option>
+            </select>
+          </label>
+        </div>
+      </div>
+
+      <div class="space-y-2">
+        <label class="text-sm font-medium">Search / Compare</label>
+        <div class="flex gap-2">
+          <input id="compareInput" type="text" placeholder='e.g. "PSG vs Nantes"' class="flex-1 px-3 py-2 border rounded-md bg-slate-50 focus:outline-none" />
+          <button id="compareBtn" class="px-3 py-2 bg-indigo-600 text-white rounded-md hover:bg-indigo-700">Compare</button>
+        </div>
+        <p class="text-xs text-slate-500">Type team names separated by "vs" or click rows to pre-fill the compare box.</p>
+      </div>
+    </section>
+
+    <div class="flex items-center justify-between mb-4">
+      <div class="text-sm text-slate-600">
+        <span id="statusMessage">No data loaded.</span>
+      </div>
+      <div class="text-xs text-slate-500">
+        Last update: <span id="lastUpdated">—</span>
+      </div>
+    </div>
+
+    <main class="grid md:grid-cols-3 gap-6">
+      <section class="md:col-span-2 bg-white rounded-lg shadow-sm overflow-x-auto">
+        <table class="min-w-full divide-y divide-slate-100">
+          <thead class="bg-slate-50">
+            <tr>
+              <th class="p-3 text-left text-xs font-medium text-slate-500">#</th>
+              <th class="p-3 text-left text-xs font-medium text-slate-500">Team</th>
+              <th class="p-3 text-center text-xs font-medium text-slate-500">P</th>
+              <th class="p-3 text-center text-xs font-medium text-slate-500">W</th>
+              <th class="p-3 text-center text-xs font-medium text-slate-500">D</th>
+              <th class="p-3 text-center text-xs font-medium text-slate-500">L</th>
+              <th class="p-3 text-center text-xs font-medium text-slate-500">GD</th>
+              <th class="p-3 text-center text-xs font-medium text-slate-500">Pts</th>
+            </tr>
+          </thead>
+          <tbody id="standingsBody" class="bg-white divide-y divide-slate-100"></tbody>
+        </table>
+      </section>
+
+      <aside class="bg-white p-4 rounded-lg shadow-sm">
+        <h2 class="text-lg font-semibold mb-3">Compare Teams</h2>
+        <div id="compareCard" class="space-y-3 text-sm text-slate-700">
+          <p class="text-slate-500">No comparison yet. Use the search above or click two teams in the table.</p>
+        </div>
+      </aside>
+    </main>
+
+    <footer class="mt-8 text-xs text-slate-500">
+      <p>Note: This app uses <a href="https://www.football-data.org/" target="_blank" rel="noreferrer" class="text-sky-600 underline">Football-Data.org</a>. Deploy the serverless proxy and set FOOTBALL_DATA_KEY to keep the API key secret.</p>
+    </footer>
+  </div>
+
+  <script>
+    const BASE_URL = "https://api.football-data.org/v4";
+    let API_KEY = localStorage.getItem('fd_api_key') || '';
+
+    const leagueSelect = document.getElementById('leagueSelect');
+    const standingsBody = document.getElementById('standingsBody');
+    const statusMessage = document.getElementById('statusMessage');
+    const lastUpdatedEl = document.getElementById('lastUpdated');
+    const apiKeyInput = document.getElementById('apiKeyInput');
+    const saveKeyBtn = document.getElementById('saveKeyBtn');
+    const refreshBtn = document.getElementById('refreshBtn');
+    const autoToggle = document.getElementById('autoToggle');
+    const intervalSelect = document.getElementById('intervalSelect');
+    const compareInput = document.getElementById('compareInput');
+    const compareBtn = document.getElementById('compareBtn');
+    const compareCard = document.getElementById('compareCard');
+
+    let currentTable = [];
+    let autoIntervalId = null;
+
+    async function fetchViaProxy(leagueCode) {
+      const endpoints = [
+        `/api/standings?league=${leagueCode}`,
+        `/.netlify/functions/standings?league=${leagueCode}`
+      ];
+
+      for (const url of endpoints) {
+        try {
+          const res = await fetch(url);
+          if (!res.ok) continue;
+          const data = await res.json();
+          if (data && data.standings) return data.standings[0].table;
+        } catch (err) {
+          // continue trying other endpoints
+        }
+      }
+      return null;
+    }
+
+    async function fetchLeagueStandings(leagueCode) {
+      const proxyResult = await fetchViaProxy(leagueCode);
+      if (proxyResult) return proxyResult;
+
+      if (!API_KEY) {
+        console.warn('No proxy available and no local API key set.');
+        return null;
+      }
+
+      try {
+        const r = await fetch(`${BASE_URL}/competitions/${leagueCode}/standings`, {
+          headers: { 'X-Auth-Token': API_KEY }
+        });
+        if (!r.ok) throw new Error(`HTTP error ${r.status}`);
+        const data = await r.json();
+        return data.standings[0].table;
+      } catch (err) {
+        console.error('Direct fetch failed:', err);
+        return null;
+      }
+    }
+
+    function compareTeams(tableData, teamNameA, teamNameB) {
+      const teamA = tableData.find(t => t.team.name.toLowerCase().includes(teamNameA.toLowerCase()));
+      const teamB = tableData.find(t => t.team.name.toLowerCase().includes(teamNameB.toLowerCase()));
+      if (!teamA || !teamB) return null;
+
+      const pointsGap = Math.abs(teamA.points - teamB.points);
+      const positionGap = Math.abs(teamA.position - teamB.position);
+      const leader = teamA.points >= teamB.points ? teamA.team.name : teamB.team.name;
+
+      return {
+        teamA: {
+          name: teamA.team.name,
+          crest: teamA.team.crest || '',
+          position: teamA.position,
+          points: teamA.points,
+          played: teamA.playedGames,
+          won: teamA.won,
+          draw: teamA.draw,
+          lost: teamA.lost,
+          goalDifference: teamA.goalDifference
+        },
+        teamB: {
+          name: teamB.team.name,
+          crest: teamB.team.crest || '',
+          position: teamB.position,
+          points: teamB.points,
+          played: teamB.playedGames,
+          won: teamB.won,
+          draw: teamB.draw,
+          lost: teamB.lost,
+          goalDifference: teamB.goalDifference
+        },
+        pointsGap,
+        positionGap,
+        leader
+      };
+    }
+
+    function setStatus(msg, isError = false) {
+      statusMessage.textContent = msg;
+      statusMessage.className = isError ? 'text-sm text-red-600' : 'text-sm text-slate-600';
+    }
+
+    function escapeHtml(str) {
+      return (str + '').replace(/[&<>"']/g, function (m) {
+        return ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' })[m];
+      });
+    }
+
+    function renderStandingsTable(tableData) {
+      currentTable = tableData || [];
+      standingsBody.innerHTML = '';
+      if (!tableData || tableData.length === 0) {
+        standingsBody.innerHTML = '<tr><td colspan="8" class="p-4 text-sm text-slate-500">No standings available.</td></tr>';
+        return;
+      }
+
+      const rows = tableData.map(row => {
+        const crestHtml = row.team.crest ? `<img src="${row.team.crest}" alt="${escapeHtml(row.team.name)} crest" class="crest rounded inline-block mr-2" onerror="this.style.display='none'"/>` : '';
+        return `
+          <tr class="hover:bg-slate-50 cursor-pointer" title="Double-click to compare with another team">
+            <td class="p-3 text-sm text-slate-600">${row.position}</td>
+            <td class="p-3 text-sm flex items-center gap-2" data-team-name="${escapeHtml(row.team.name)}">
+              ${crestHtml}
+              <div class="team-name">${escapeHtml(row.team.name)}</div>
+            </td>
+            <td class="p-3 text-center text-sm text-slate-600">${row.playedGames}</td>
+            <td class="p-3 text-center text-sm text-slate-600">${row.won}</td>
+            <td class="p-3 text-center text-sm text-slate-600">${row.draw}</td>
+            <td class="p-3 text-center text-sm text-slate-600">${row.lost}</td>
+            <td class="p-3 text-center text-sm text-slate-600">${row.goalDifference}</td>
+            <td class="p-3 text-center text-sm font-semibold">${row.points}</td>
+          </tr>
+        `;
+      }).join('');
+      standingsBody.innerHTML = rows;
+      attachRowClickHandlers();
+    }
+
+    function attachRowClickHandlers() {
+      document.querySelectorAll('[data-team-name]').forEach(el => {
+        el.addEventListener('click', () => {
+          const name = el.getAttribute('data-team-name');
+          const cur = compareInput.value.trim();
+          if (!cur) compareInput.value = name;
+          else if (cur.toLowerCase().includes(' vs ')) {
+            const parts = cur.split(/vs\.?|VS|vs/i);
+            compareInput.value = parts[0].trim() + ' vs ' + name;
+          } else {
+            compareInput.value = cur + ' vs ' + name;
+          }
+        });
+
+        el.addEventListener('dblclick', () => {
+          const name = el.getAttribute('data-team-name');
+          const cur = compareInput.value.trim();
+          if (!cur) {
+            compareInput.value = name;
+            doCompareFromInput(name);
+          } else if (cur.toLowerCase().includes(' vs ')) {
+            doCompareFromInput(compareInput.value.trim());
+          } else {
+            compareInput.value = cur + ' vs ' + name;
+            doCompareFromInput(compareInput.value.trim());
+          }
+        });
+      });
+    }
+
+    function parseCompareInput(input) {
+      const parts = input.split(/vs\.?|VS|v\.?/i).map(p => p.trim()).filter(Boolean);
+      if (parts.length < 2) return null;
+      return { a: parts[0], b: parts[1] };
+    }
+
+    function renderCompareCard(result) {
+      if (!result) {
+        compareCard.innerHTML = '<p class="text-slate-500">No comparison available.</p>';
+        return;
+      }
+
+      compareCard.innerHTML = `
+        <div class="flex items-center gap-3">
+          <div class="flex items-center gap-3">
+            <img src="${result.teamA.crest || ''}" alt="${escapeHtml(result.teamA.name)} crest" class="crest rounded" onerror="this.style.display='none'"/>
+            <div>
+              <div class="font-semibold">${escapeHtml(result.teamA.name)}</div>
+              <div class="text-xs text-slate-500">Pos ${result.teamA.position} • ${result.teamA.points} pts</div>
+            </div>
+          </div>
+          <div class="mx-2 text-slate-400">vs</div>
+          <div class="flex items-center gap-3">
+            <img src="${result.teamB.crest || ''}" alt="${escapeHtml(result.teamB.name)} crest" class="crest rounded" onerror="this.style.display='none'"/>
+            <div>
+              <div class="font-semibold">${escapeHtml(result.teamB.name)}</div>
+              <div class="text-xs text-slate-500">Pos ${result.teamB.position} • ${result.teamB.points} pts</div>
+            </div>
+          </div>
+        </div>
+
+        <div class="pt-3 border-t border-slate-100">
+          <div class="text-sm text-slate-600">Points gap: <span class="font-medium">${result.pointsGap}</span></div>
+          <div class="text-sm text-slate-600">Position gap: <span class="font-medium">${result.positionGap}</span></div>
+          <div class="text-sm mt-1">Leader: <strong>${escapeHtml(result.leader)}</strong></div>
+          <div class="grid grid-cols-2 gap-3 mt-3">
+            <div class="bg-slate-50 p-3 rounded">
+              <div class="text-xs text-slate-500">Played</div>
+              <div class="font-semibold">${result.teamA.played}</div>
+              <div class="text-xs text-slate-500">W/D/L</div>
+              <div class="text-sm">${result.teamA.won} / ${result.teamA.draw} / ${result.teamA.lost}</div>
+            </div>
+            <div class="bg-slate-50 p-3 rounded">
+              <div class="text-xs text-slate-500">Played</div>
+              <div class="font-semibold">${result.teamB.played}</div>
+              <div class="text-xs text-slate-500">W/D/L</div>
+              <div class="text-sm">${result.teamB.won} / ${result.teamB.draw} / ${result.teamB.lost}</div>
+            </div>
+          </div>
+        </div>
+      `;
+    }
+
+    function doCompareFromInput(input) {
+      if (!currentTable || currentTable.length === 0) {
+        setStatus('Load standings first before comparing teams.', true);
+        return;
+      }
+      const parsed = parseCompareInput(input);
+      if (!parsed) {
+        setStatus('Invalid compare input. Use "Team A vs Team B".', true);
+        return;
+      }
+      const result = compareTeams(currentTable, parsed.a, parsed.b);
+      if (!result) {
+        setStatus('One or both teams were not found in the current league.', true);
+        renderCompareCard(null);
+        return;
+      }
+      setStatus(`Compared ${result.teamA.name} and ${result.teamB.name}.`);
+      renderCompareCard(result);
+    }
+
+    saveKeyBtn.addEventListener('click', () => {
+      const key = apiKeyInput.value.trim();
+      if (!key) {
+        setStatus('Please enter a valid API key.', true);
+        return;
+      }
+      API_KEY = key;
+      localStorage.setItem('fd_api_key', key);
+      setStatus('API key saved locally.');
+      loadStandings();
+    });
+
+    leagueSelect.addEventListener('change', () => {
+      localStorage.setItem('fd_selected_league', leagueSelect.value);
+      loadStandings();
+    });
+
+    refreshBtn.addEventListener('click', () => loadStandings());
+    autoToggle.addEventListener('change', () => {
+      localStorage.setItem('fd_auto_refresh', autoToggle.checked);
+      configureAutoRefresh();
+    });
+    intervalSelect.addEventListener('change', () => {
+      localStorage.setItem('fd_refresh_interval', intervalSelect.value);
+      configureAutoRefresh();
+    });
+    compareBtn.addEventListener('click', () => doCompareFromInput(compareInput.value.trim()));
+    compareInput.addEventListener('keydown', (e) => {
+      if (e.key === 'Enter') {
+        e.preventDefault();
+        doCompareFromInput(compareInput.value.trim());
+      }
+    });
+
+    async function loadStandings() {
+      const league = leagueSelect.value;
+      setStatus('Loading standings...');
+      const table = await fetchLeagueStandings(league);
+      if (!table) {
+        setStatus('Failed to fetch standings. Ensure the proxy is deployed and FOOTBALL_DATA_KEY is set, or save a local key for testing.', true);
+        return;
+      }
+      renderStandingsTable(table);
+      lastUpdatedEl.textContent = new Date().toLocaleString();
+      setStatus(`Standings updated for ${league}.`);
+    }
+
+    function configureAutoRefresh() {
+      if (autoIntervalId) clearInterval(autoIntervalId);
+      if (autoToggle.checked) {
+        const seconds = parseInt(intervalSelect.value, 10) || 60;
+        autoIntervalId = setInterval(() => loadStandings(), seconds * 1000);
+        setStatus(`Auto-refresh enabled (${seconds}s).`);
+      } else {
+        setStatus('Auto-refresh disabled.');
+      }
+    }
+
+    function initFromStorage() {
+      apiKeyInput.value = localStorage.getItem('fd_api_key') || '';
+      API_KEY = apiKeyInput.value || '';
+      leagueSelect.value = localStorage.getItem('fd_selected_league') || leagueSelect.value;
+      autoToggle.checked = localStorage.getItem('fd_auto_refresh') === 'true';
+      intervalSelect.value = localStorage.getItem('fd_refresh_interval') || intervalSelect.value;
+    }
+
+    (function init() {
+      initFromStorage();
+      if (API_KEY) setStatus('Local API key loaded. For production, deploy a serverless function and set FOOTBALL_DATA_KEY.');
+      else setStatus('No local API key. Deploy the serverless function and set FOOTBALL_DATA_KEY for production.');
+      loadStandings();
+      configureAutoRefresh();
+      window.__app = { loadStandings, fetchLeagueStandings, compareTeams };
+    })();
+  </script>
+</body>
+</html>
